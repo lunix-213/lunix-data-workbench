@@ -1,0 +1,34 @@
+================================================================================
+          PANDUAN MENJALANKAN LUNIX DataControl Studio
+================================================================================
+
+Aplikasi ini adalah Workbench & In-Memory Database Spreadsheet untuk mengolah,
+membersihkan, memfilter (SQL Studio), rekonsiliasi multi-tabel, dan menganalisis 
+data Excel / CSV / JSON secara cepat di browser lokal tanpa upload ke internet.
+
+--------------------------------------------------------------------------------
+1. PERSYARATAN:
+--------------------------------------------------------------------------------
+- Komputer Windows 10 / 11.
+- Telah menginstall Node.js (download gratis di https://nodejs.org/ - pilih versi LTS).
+
+--------------------------------------------------------------------------------
+2. CARA MENJALANKAN:
+--------------------------------------------------------------------------------
+1. Ekstrak semua file ke folder mana saja di komputer Anda.
+2. Klik ganda (double-click) pada file:
+   👉 launch.bat
+
+3. Skrip akan otomatis:
+   - Memeriksa instalasi Node.js.
+   - Mengunduh dependensi (hanya pada saat pertama kali dibuka).
+   - Menjalankan server lokal di port 3120.
+   - Membuka browser Anda di: http://localhost:3120/
+
+--------------------------------------------------------------------------------
+3. KEAMANAN & PRIVASI DATA:
+--------------------------------------------------------------------------------
+- Seluruh data yang diimpor (Excel, CSV, JSON) diproses 100% di memori RAM browser
+  lokal komputer Anda (Client-Side).
+- Tidak ada data yang dikirim atau diunggah ke server luar / cloud.
+================================================================================
