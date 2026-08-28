@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo, useEffect } from 'react';
 import { ColumnSchema, ColumnType, DataRow, DataTable, AppendConfig, JoinConfig } from '../types/dataset';
 import { TransformationActionType } from '../types/history';
 import { getSampleDatasets } from '../services/sampleData';
-import { isLongDigitCodeOrLeadingZero } from '../services/fileParser';
+import { isLongDigitCodeOrLeadingZero, parseAndFormatDate } from '../services/fileParser';
 import { downloadBlob } from '../services/exporter';
 
 export function useDatabase() {
@@ -136,6 +136,12 @@ export function useDatabase() {
             const num = Number(strVal.replace(/,/g, ''));
             formattedVal = isNaN(num) ? strVal : num;
           }
+        } else if (newType === 'DATE') {
+          formattedVal = parseAndFormatDate(val);
+        } else if (newType === 'CURRENCY') {
+          const cleaned = strVal.replace(/[^\d.,-]/g, '').replace(/,/g, '');
+          const num = Number(cleaned);
+          formattedVal = isNaN(num) ? strVal : num;
         } else if (newType === 'BOOLEAN') {
           formattedVal = strVal.toLowerCase() === 'true' || strVal === '1';
         } else if (newType === 'TEXT') {

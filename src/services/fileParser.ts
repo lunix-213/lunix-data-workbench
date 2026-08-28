@@ -22,6 +22,92 @@ export function isLongDigitCodeOrLeadingZero(val: any): boolean {
 }
 
 /**
+ * Standardizes any Date / Excel serial / localized date string (e.g. '5/24/26', '24/05/2026', '2026-05-24')
+ * into ISO format 'YYYY-MM-DD' so it works natively with SQL, AlaSQL, Pivot, and sorting.
+ */
+export function parseAndFormatDate(val: any): string {
+  if (val === null || val === undefined) return '';
+  if (val instanceof Date && !isNaN(val.getTime())) {
+    const y = val.getFullYear();
+    const m = String(val.getMonth() + 1).padStart(2, '0');
+    const d = String(val.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  const str = String(val).trim();
+  if (!str) return '';
+
+  // 1. Check if Excel numeric serial date (e.g. 40000 - 60000)
+  if (/^\d{5}(\.\d+)?$/.test(str)) {
+    const serial = parseFloat(str);
+    if (serial > 20000 && serial < 80000) {
+      // Excel epoch begins 1899-12-30
+      const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+      const date = new Date(excelEpoch.getTime() + serial * 86400000);
+      if (!isNaN(date.getTime())) {
+        const y = date.getUTCFullYear();
+        const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+        const d = String(date.getUTCDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+      }
+    }
+  }
+
+  // 2. Format YYYY-MM-DD or YYYY/MM/DD
+  const ymdMatch = str.match(/^(\d{4})[-/. ](\d{1,2})[-/. ](\d{1,2})(.*)$/);
+  if (ymdMatch) {
+    const y = ymdMatch[1];
+    const m = String(ymdMatch[2]).padStart(2, '0');
+    const d = String(ymdMatch[3]).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  // 3. Format M/D/YY or M/D/YYYY or D/M/YY or D/M/YYYY (e.g. 5/24/26 -> 2026-05-24)
+  const slashMatch = str.match(/^(\d{1,2})[-/. ](\d{1,2})[-/. ](\d{2,4})(.*)$/);
+  if (slashMatch) {
+    let part1 = parseInt(slashMatch[1], 10);
+    let part2 = parseInt(slashMatch[2], 10);
+    let year = parseInt(slashMatch[3], 10);
+
+    // Expand 2-digit year (e.g. 26 -> 2026, 95 -> 1995)
+    if (year < 100) {
+      year = year < 50 ? 2000 + year : 1900 + year;
+    }
+
+    let month = part1;
+    let day = part2;
+
+    // Disambiguate MM/DD vs DD/MM: if part1 > 12, part1 must be day
+    if (part1 > 12 && part2 <= 12) {
+      day = part1;
+      month = part2;
+    } else if (part2 > 12 && part1 <= 12) {
+      month = part1;
+      day = part2;
+    }
+
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      const yStr = String(year);
+      const mStr = String(month).padStart(2, '0');
+      const dStr = String(day).padStart(2, '0');
+      return `${yStr}-${mStr}-${dStr}`;
+    }
+  }
+
+  // 4. Fallback Date.parse
+  const parsed = Date.parse(str);
+  if (!isNaN(parsed)) {
+    const dt = new Date(parsed);
+    const y = dt.getFullYear();
+    const m = String(dt.getMonth() + 1).padStart(2, '0');
+    const d = String(dt.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  return str;
+}
+
+/**
  * Smart Type Inferrer for a list of sample values in a column.
  */
 export function inferColumnType(samples: any[]): ColumnType {
@@ -55,27 +141,27 @@ export function inferColumnType(samples: any[]): ColumnType {
       continue;
     }
 
-    // 4. Number check (handling comma or dot decimals)
+    // 4. Date check (ISO, MM/DD/YYYY, DD/MM/YYYY, M/D/YY)
+    if (/^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}/.test(str) || /^\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}/.test(str)) {
+      const formatted = parseAndFormatDate(str);
+      if (formatted && /^\d{4}-\d{2}-\d{2}/.test(formatted)) {
+        dateCount++;
+        continue;
+      }
+    }
+
+    // 5. Number check (handling comma or dot decimals)
     const cleanedNum = str.replace(/[,.](\d{2})$/, '.$1').replace(/,/g, '');
     if (!isNaN(Number(cleanedNum)) && str !== '') {
       numberCount++;
       continue;
     }
-
-    // 5. Date check (ISO, DD/MM/YYYY, YYYY-MM-DD)
-    if (/^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}/.test(str) || /^\d{1,2}[-/.]\d{1,2}[-/.]\d{4}/.test(str)) {
-      const parsed = Date.parse(str);
-      if (!isNaN(parsed)) {
-        dateCount++;
-        continue;
-      }
-    }
   }
 
-  const threshold = nonNulls.length * 0.7; // 70% match
+  const threshold = nonNulls.length * 0.6; // 60% match
   if (currencyCount >= threshold) return 'CURRENCY';
-  if (numberCount >= threshold) return 'NUMBER';
   if (dateCount >= threshold) return 'DATE';
+  if (numberCount >= threshold) return 'NUMBER';
   if (boolCount >= threshold) return 'BOOLEAN';
 
   return 'TEXT';
@@ -303,6 +389,16 @@ export function buildDataTableFromPreview(preview: FileImportPreview): DataTable
             const num = Number(strVal.replace(/,/g, ''));
             rowObj[col.name] = isNaN(num) ? strVal : num;
           }
+          break;
+        }
+        case 'DATE': {
+          rowObj[col.name] = parseAndFormatDate(rawVal);
+          break;
+        }
+        case 'CURRENCY': {
+          const cleaned = strVal.replace(/[^\d.,-]/g, '').replace(/,/g, '');
+          const num = Number(cleaned);
+          rowObj[col.name] = isNaN(num) ? strVal : num;
           break;
         }
         case 'BOOLEAN': {

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   Upload, 
   X, 
@@ -9,7 +9,9 @@ import {
   Layers, 
   Type, 
   Hash, 
-  Calendar 
+  Calendar,
+  RotateCcw,
+  Plus
 } from 'lucide-react';
 import { ColumnType, DataTable, FileImportPreview } from '../../types/dataset';
 import { 
@@ -18,7 +20,8 @@ import {
   parseJsonFile, 
   buildDataTableFromPreview, 
   inferColumnType,
-  sanitizeHeaderNames
+  sanitizeHeaderNames,
+  parseAndFormatDate
 } from '../../services/fileParser';
 
 interface PreImportModalProps {
@@ -36,13 +39,28 @@ export const PreImportModal: React.FC<PreImportModalProps> = ({
   const [activePreviewIndex, setActivePreviewIndex] = useState<number>(0);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Clean reset every time modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setPreviews([]);
+      setActivePreviewIndex(0);
+      setIsLoading(false);
+      setErrorMessage(null);
+      setIsDragging(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
   const currentPreview = previews[activePreviewIndex] || null;
 
-  // Handle file select
+  // Handle file select / drop
   const handleFilesSelected = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     setIsLoading(true);
@@ -68,16 +86,41 @@ export const PreImportModal: React.FC<PreImportModalProps> = ({
       }
 
       if (allPreviews.length > 0) {
-        setPreviews(allPreviews);
-        setActivePreviewIndex(0);
+        setPreviews(prev => [...prev, ...allPreviews]);
+        setActivePreviewIndex(prev => (prev === 0 ? 0 : prev));
       } else {
-        setErrorMessage('Tidak ada data valid yang dapat dibaca dari file.');
+        setErrorMessage('Tidak ada data valid yang dapat dibaca dari file yang dipilih.');
       }
     } catch (err: any) {
       console.error(err);
       setErrorMessage(`Gagal memproses file: ${err?.message || 'Format tidak didukung'}`);
     } finally {
       setIsLoading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  // Drag and drop event handlers
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFilesSelected(e.dataTransfer.files);
     }
   };
 
@@ -123,16 +166,49 @@ export const PreImportModal: React.FC<PreImportModalProps> = ({
     }));
   };
 
+  // Reset entire import state
+  const handleResetPreviews = () => {
+    setPreviews([]);
+    setActivePreviewIndex(0);
+    setErrorMessage(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  // Close modal with clean reset
+  const handleCloseModal = () => {
+    handleResetPreviews();
+    onClose();
+  };
+
   // Confirm Import
   const handleConfirmImport = () => {
     if (previews.length === 0) return;
     const tables = previews.map(p => buildDataTableFromPreview(p));
     onImportTables(tables);
+    handleResetPreviews();
     onClose();
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div 
+      className="modal-overlay" 
+      onClick={handleCloseModal}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* Hidden file input */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        multiple
+        accept=".xlsx,.xls,.csv,.tsv,.json,.txt"
+        style={{ display: 'none' }}
+        onChange={(e) => handleFilesSelected(e.target.files)}
+      />
+
       <div 
         className="modal-dialog modal-dialog-large" 
         onClick={(e) => e.stopPropagation()}
@@ -144,7 +220,7 @@ export const PreImportModal: React.FC<PreImportModalProps> = ({
             <Upload size={18} color="var(--pastel-blue)" />
             <span>Import Data & Precision-Safe Schema Configurator</span>
           </div>
-          <button className="btn btn-outline btn-sm btn-icon" onClick={onClose}>
+          <button className="btn btn-outline btn-sm btn-icon" onClick={handleCloseModal}>
             <X size={14} />
           </button>
         </div>
@@ -155,7 +231,7 @@ export const PreImportModal: React.FC<PreImportModalProps> = ({
             <div 
               style={{
                 flex: 1,
-                border: '2px dashed var(--border-medium)',
+                border: isDragging ? '2px dashed var(--pastel-blue)' : '2px dashed var(--border-medium)',
                 borderRadius: 'var(--radius-lg)',
                 display: 'flex',
                 flexDirection: 'column',
@@ -163,29 +239,42 @@ export const PreImportModal: React.FC<PreImportModalProps> = ({
                 justifyContent: 'center',
                 padding: '32px',
                 textAlign: 'center',
-                backgroundColor: 'var(--bg-surface)',
+                backgroundColor: isDragging ? 'var(--pastel-blue-bg)' : 'var(--bg-surface)',
                 cursor: 'pointer',
+                transition: 'all 0.2s ease',
               }}
               onClick={() => fileInputRef.current?.click()}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
             >
-              <input
-                type="file"
-                ref={fileInputRef}
-                multiple
-                accept=".xlsx,.xls,.csv,.tsv,.json,.txt"
-                style={{ display: 'none' }}
-                onChange={(e) => handleFilesSelected(e.target.files)}
+              <FileSpreadsheet 
+                size={54} 
+                color={isDragging ? 'var(--pastel-blue)' : 'var(--pastel-blue)'} 
+                style={{ marginBottom: '14px', transform: isDragging ? 'scale(1.1)' : 'none', transition: 'transform 0.2s ease' }} 
               />
-              <FileSpreadsheet size={48} color="var(--pastel-blue)" style={{ marginBottom: '12px' }} />
-              <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px' }}>
-                {isLoading ? 'Memproses File...' : 'Klik atau Drag & Drop File Spreadsheet'}
+              <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px' }}>
+                {isLoading 
+                  ? '⏳ Sedang Memproses File...' 
+                  : isDragging 
+                    ? '📥 Lepaskan File di Sini untuk Mengunggah' 
+                    : 'Klik atau Drag & Drop File Spreadsheet ke Sini'}
               </div>
-              <div style={{ fontSize: '12px', color: 'var(--text-muted)', maxWidth: '400px' }}>
-                Mendukung Excel (.xlsx/.xls multi-sheet), CSV, TSV, dan JSON. Semua angka 19-digit & kode awalan nol akan diamankan otomatis sebagai TEXT murni.
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)', maxWidth: '440px', lineHeight: 1.5 }}>
+                Mendukung Excel (<code>.xlsx</code> / <code>.xls</code> multi-sheet), CSV, TSV, dan JSON. Semua angka 16–19 digit & kode berawalan nol diamankan otomatis sebagai TEXT murni.
               </div>
 
+              <button 
+                type="button" 
+                className="btn btn-secondary btn-sm" 
+                style={{ marginTop: '16px', pointerEvents: 'none' }}
+              >
+                <Upload size={14} />
+                <span>Pilih File dari Komputer</span>
+              </button>
+
               {errorMessage && (
-                <div style={{ marginTop: '16px', color: 'var(--pastel-rose)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <div style={{ marginTop: '16px', color: 'var(--pastel-rose)', backgroundColor: 'var(--pastel-rose-bg)', padding: '6px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--pastel-rose-border)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <AlertCircle size={14} />
                   <span>{errorMessage}</span>
                 </div>
@@ -193,25 +282,49 @@ export const PreImportModal: React.FC<PreImportModalProps> = ({
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: '12px' }}>
-              {/* Top File / Sheet Tabs */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
-                {previews.map((preview, idx) => (
+              {/* Top File / Sheet Tabs & Actions */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflowX: 'auto', flex: 1 }}>
+                  {previews.map((preview, idx) => (
+                    <button
+                      key={preview.fileId}
+                      className={`btn btn-sm ${activePreviewIndex === idx ? 'btn-primary' : 'btn-outline'}`}
+                      onClick={() => setActivePreviewIndex(idx)}
+                    >
+                      <FileSpreadsheet size={13} />
+                      <span>{preview.fileName} ({preview.sheetName})</span>
+                    </button>
+                  ))}
+                </div>
+
+                {/* Additional Action Buttons */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
                   <button
-                    key={preview.fileId}
-                    className={`btn btn-sm ${activePreviewIndex === idx ? 'btn-primary' : 'btn-outline'}`}
-                    onClick={() => setActivePreviewIndex(idx)}
+                    type="button"
+                    className="btn btn-outline btn-sm"
+                    onClick={() => fileInputRef.current?.click()}
+                    title="Tambah file spreadsheet lainnya"
                   >
-                    <FileSpreadsheet size={13} />
-                    <span>{preview.fileName} ({preview.sheetName})</span>
+                    <Plus size={13} />
+                    <span>+ Tambah File</span>
                   </button>
-                ))}
+                  <button
+                    type="button"
+                    className="btn btn-outline btn-sm"
+                    onClick={handleResetPreviews}
+                    title="Kosongkan dan pilih ulang file baru"
+                  >
+                    <RotateCcw size={13} />
+                    <span>Ganti File</span>
+                  </button>
+                </div>
               </div>
 
               {/* 19-Digit Code Protection Alert Banner */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: 'var(--pastel-emerald-bg)', border: '1px solid var(--pastel-emerald-border)', padding: '8px 12px', borderRadius: 'var(--radius-md)', fontSize: '11.5px', color: 'var(--pastel-emerald)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: 'var(--pastel-emerald-bg)', border: '1px solid var(--pastel-emerald-border)', padding: '7px 12px', borderRadius: 'var(--radius-md)', fontSize: '11.5px', color: 'var(--pastel-emerald)' }}>
                 <ShieldCheck size={16} style={{ flexShrink: 0 }} />
                 <span>
-                  <strong>Precision Protection Active:</strong> Angka 16–19 digit dan teks berawalan angka 0 dikunci sebagai TEXT murni agar tidak berubah jadi notasi ilmiah (<code>1.234E+18</code>).
+                  <strong>Precision Protection Active:</strong> Angka 16–19 digit (NIK, nomor kartu) dikunci sebagai TEXT murni. Format tanggal (DATE) distandardisasi otomatis ke format ISO (<code>YYYY-MM-DD</code>).
                 </span>
               </div>
 
@@ -254,15 +367,21 @@ export const PreImportModal: React.FC<PreImportModalProps> = ({
                             </div>
                             <select
                               className="form-control form-select"
-                              style={{ height: '24px', fontSize: '11px', padding: '0 20px 0 6px' }}
+                              style={{ 
+                                height: '24px', 
+                                fontSize: '11px', 
+                                padding: '0 20px 0 6px',
+                                borderColor: col.type === 'DATE' ? 'var(--pastel-blue)' : undefined,
+                                fontWeight: col.type === 'DATE' ? 600 : 400
+                              }}
                               value={col.type}
                               onChange={(e) => handleColumnTypeOverride(colIdx, e.target.value as ColumnType)}
                             >
                               <option value="TEXT">TEXT (19-Digit Safe)</option>
                               <option value="NUMBER">NUMBER (Angka)</option>
                               <option value="DATE">DATE (Tanggal)</option>
+                              <option value="CURRENCY">CURRENCY (Mata Uang)</option>
                               <option value="BOOLEAN">BOOLEAN</option>
-                              <option value="CURRENCY">CURRENCY</option>
                             </select>
                           </th>
                         ))}
@@ -274,15 +393,27 @@ export const PreImportModal: React.FC<PreImportModalProps> = ({
                         .map((r, rIdx) => (
                           <tr key={rIdx}>
                             <td className="row-index-cell">{rIdx + 1}</td>
-                            {currentPreview.selectedColumns.map((_, colIdx) => (
-                              <td key={colIdx}>
-                                {r[colIdx] !== undefined && r[colIdx] !== null && r[colIdx] !== '' ? (
-                                  String(r[colIdx])
-                                ) : (
-                                  <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>null</span>
-                                )}
-                              </td>
-                            ))}
+                            {currentPreview.selectedColumns.map((col, colIdx) => {
+                              const rawVal = r[colIdx];
+                              let displayVal: string | null = (rawVal !== undefined && rawVal !== null && rawVal !== '') ? String(rawVal) : null;
+                              
+                              // Format date preview if DATE type selected
+                              if (displayVal !== null && col.type === 'DATE') {
+                                displayVal = parseAndFormatDate(displayVal);
+                              }
+
+                              return (
+                                <td key={colIdx}>
+                                  {displayVal !== null ? (
+                                    <span style={col.type === 'DATE' ? { color: 'var(--pastel-blue)', fontWeight: 600 } : {}}>
+                                      {displayVal}
+                                    </span>
+                                  ) : (
+                                    <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>null</span>
+                                  )}
+                                </td>
+                              );
+                            })}
                           </tr>
                         ))}
                     </tbody>
@@ -295,7 +426,7 @@ export const PreImportModal: React.FC<PreImportModalProps> = ({
 
         {/* Modal Footer */}
         <div className="modal-footer">
-          <button className="btn btn-outline btn-sm" onClick={onClose}>
+          <button className="btn btn-outline btn-sm" onClick={handleCloseModal}>
             Batal
           </button>
           <button
